@@ -3,14 +3,42 @@ import pandas as pd
 
 DB_NAME = "food_waste.db"
 
+# ------------------------------------------------
+# Database Connection
+# ------------------------------------------------
+
 def get_connection():
     return sqlite3.connect(DB_NAME)
+
+
+# ------------------------------------------------
+# Helper to return dataframe
+# ------------------------------------------------
+
+def fetch_dataframe(query, params=None):
+
+    conn = get_connection()
+
+    if params:
+        df = pd.read_sql_query(query, conn, params=params)
+    else:
+        df = pd.read_sql_query(query, conn)
+
+    conn.close()
+    return df
+
+
+# ------------------------------------------------
+# Create Tables
+# ------------------------------------------------
+
 def create_all_tables():
-    conn = sqlite3.connect(DB_NAME)
+
+    conn = get_connection()
     cursor = conn.cursor()
-    # Define your tables with proper schema here
+
     cursor.execute("""
-    CREATE TABLE IF NOT EXISTS providers (
+    CREATE TABLE IF NOT EXISTS providers(
         Provider_ID INTEGER PRIMARY KEY AUTOINCREMENT,
         Name TEXT,
         Type TEXT,
@@ -19,8 +47,9 @@ def create_all_tables():
         Contact TEXT
     )
     """)
+
     cursor.execute("""
-    CREATE TABLE IF NOT EXISTS receivers (
+    CREATE TABLE IF NOT EXISTS receivers(
         Receiver_ID INTEGER PRIMARY KEY AUTOINCREMENT,
         Name TEXT,
         Type TEXT,
@@ -28,241 +57,345 @@ def create_all_tables():
         Contact TEXT
     )
     """)
+
     cursor.execute("""
-    CREATE TABLE IF NOT EXISTS food_listings (
+    CREATE TABLE IF NOT EXISTS food_listings(
         Food_ID INTEGER PRIMARY KEY AUTOINCREMENT,
         Food_Name TEXT,
         Quantity INTEGER,
-        Expiry_Date TEXT,
+        Expiry_Date DATE,
         Provider_ID INTEGER,
         Provider_Type TEXT,
         Location TEXT,
         Food_Type TEXT,
-        Meal_Type TEXT,
-        FOREIGN KEY(Provider_ID) REFERENCES providers(Provider_ID)
+        Meal_Type TEXT
     )
     """)
+
     cursor.execute("""
-    CREATE TABLE IF NOT EXISTS claims (
+    CREATE TABLE IF NOT EXISTS claims(
         Claim_ID INTEGER PRIMARY KEY AUTOINCREMENT,
         Food_ID INTEGER,
         Receiver_ID INTEGER,
         Status TEXT,
-        Timestamp TEXT,
-        FOREIGN KEY(Food_ID) REFERENCES food_listings(Food_ID),
-        FOREIGN KEY(Receiver_ID) REFERENCES receivers(Receiver_ID)
+        Timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
     )
     """)
+
     conn.commit()
     conn.close()
 
-def clear_table(table_name):
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute(f"DELETE FROM {table_name}")
-    conn.commit()
-    conn.close()
 
-def insert_dataframe(df, table_name):
-    conn = sqlite3.connect(DB_NAME)
-    df.to_sql(table_name, conn, if_exists="append", index=False)
-    conn.close()
-
-def fetch_dataframe(query, params=None):
-    conn = sqlite3.connect(DB_NAME)
-    try:
-        if params:
-            df = pd.read_sql_query(query, conn, params=params)
-        else:
-            df = pd.read_sql_query(query, conn)
-    finally:
-        conn.close()
-    return df
-
-def execute_query(query, params=None):
-    conn = get_connection()
-    c = conn.cursor()
-    if params:
-        c.execute(query, params)
-    else:
-        c.execute(query)
-    conn.commit()
-    conn.close()
-
+# ------------------------------------------------
 # CRUD Providers
-def add_provider(name, ptype, address, city, contact):
-    execute_query(
-        "INSERT INTO providers (Name, Type, Address, City, Contact) VALUES (?, ?, ?, ?, ?)",
-        (name, ptype, address, city, contact)
-    )
+# ------------------------------------------------
 
-def update_provider(pid, name, ptype, address, city, contact):
-    execute_query(
-        "UPDATE providers SET Name=?, Type=?, Address=?, City=?, Contact=? WHERE Provider_ID=?",
-        (name, ptype, address, city, contact, pid)
-    )
+def add_provider(name,ptype,address,city,contact):
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    INSERT INTO providers(Name,Type,Address,City,Contact)
+    VALUES(?,?,?,?,?)
+    """,(name,ptype,address,city,contact))
+
+    conn.commit()
+    conn.close()
+
+
+def update_provider(pid,name,ptype,address,city,contact):
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    UPDATE providers
+    SET Name=?,Type=?,Address=?,City=?,Contact=?
+    WHERE Provider_ID=?
+    """,(name,ptype,address,city,contact,pid))
+
+    conn.commit()
+    conn.close()
+
 
 def delete_provider(pid):
-    execute_query("DELETE FROM providers WHERE Provider_ID=?", (pid,))
 
-# CRUD Receivers
-def add_receiver(name, rtype, city, contact):
-    execute_query(
-        "INSERT INTO receivers (Name, Type, City, Contact) VALUES (?, ?, ?, ?)",
-        (name, rtype, city, contact)
-    )
-
-def update_receiver(rid, name, rtype, city, contact):
-    execute_query(
-        "UPDATE receivers SET Name=?, Type=?, City=?, Contact=? WHERE Receiver_ID=?",
-        (name, rtype, city, contact, rid)
-    )
-
-def delete_receiver(rid):
-    execute_query("DELETE FROM receivers WHERE Receiver_ID=?", (rid,))
-
-# CRUD Food Listings
-def add_food_listing(food_name, quantity, expiry_date, provider_id, provider_type, location, food_type, meal_type):
-    if hasattr(expiry_date, 'strftime'):
-        expiry_date = expiry_date.strftime('%Y-%m-%d')
-    execute_query(
-        """INSERT INTO food_listings 
-        (Food_Name, Quantity, Expiry_Date, Provider_ID, Provider_Type, Location, Food_Type, Meal_Type)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-        (food_name, quantity, expiry_date, provider_id, provider_type, location, food_type, meal_type)
-    )
-
-def update_food_listing(fid, food_name, quantity, expiry_date, provider_id, provider_type, location, food_type, meal_type):
-    if hasattr(expiry_date, 'strftime'):
-        expiry_date = expiry_date.strftime('%Y-%m-%d')
-    execute_query(
-        """UPDATE food_listings SET Food_Name=?, Quantity=?, Expiry_Date=?, Provider_ID=?, Provider_Type=?, Location=?, Food_Type=?, Meal_Type=? 
-        WHERE Food_ID=?""",
-        (food_name, quantity, expiry_date, provider_id, provider_type, location, food_type, meal_type, fid)
-    )
-
-def delete_food_listing(fid):
-    execute_query("DELETE FROM food_listings WHERE Food_ID=?", (fid,))
-
-# CRUD Claims
-def add_claim(food_id, receiver_id, status, timestamp=None):
-    if timestamp is None:
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    elif hasattr(timestamp, 'strftime'):
-        timestamp = timestamp.strftime('%Y-%m-%d %H:%M:%S')
-    execute_query(
-        "INSERT INTO claims (Food_ID, Receiver_ID, Status, Timestamp) VALUES (?, ?, ?, ?)",
-        (food_id, receiver_id, status, timestamp)
-    )
-
-def update_claim(claim_id, food_id, receiver_id, status, timestamp=None):
-    if timestamp is None:
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    elif hasattr(timestamp, 'strftime'):
-        timestamp = timestamp.strftime('%Y-%m-%d %H:%M:%S')
-    execute_query(
-        "UPDATE claims SET Food_ID=?, Receiver_ID=?, Status=?, Timestamp=? WHERE Claim_ID=?",
-        (food_id, receiver_id, status, timestamp, claim_id)
-    )
-
-def delete_claim(claim_id):
-    execute_query("DELETE FROM claims WHERE Claim_ID=?", (claim_id,))
-
-def clear_table(table_name):
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute(f"DELETE FROM {table_name}")
+
+    cursor.execute("DELETE FROM providers WHERE Provider_ID=?",(pid,))
+
     conn.commit()
     conn.close()
 
 
-# Report Query Functions
+# ------------------------------------------------
+# CRUD Receivers
+# ------------------------------------------------
 
-def get_providers_per_city():
-    return fetch_dataframe("SELECT City, COUNT(*) as Provider_Count FROM providers GROUP BY City")
+def add_receiver(name,rtype,city,contact):
 
-def get_receivers_per_city():
-    return fetch_dataframe("SELECT City, COUNT(*) as Receiver_Count FROM receivers GROUP BY City")
+    conn = get_connection()
+    cursor = conn.cursor()
 
-def get_provider_contacts_by_city(city):
-    return fetch_dataframe("SELECT Name, Contact FROM providers WHERE City = ?", [city])
+    cursor.execute("""
+    INSERT INTO receivers(Name,Type,City,Contact)
+    VALUES(?,?,?,?)
+    """,(name,rtype,city,contact))
 
-def get_food_quantity_by_type():
-    return fetch_dataframe("SELECT Food_Type, SUM(Quantity) as Total_Quantity FROM food_listings GROUP BY Food_Type")
+    conn.commit()
+    conn.close()
 
-def get_expiring_soon_food(days=3):
-    return fetch_dataframe(f"""
-        SELECT Food_Name, Expiry_Date FROM food_listings 
-        WHERE DATE(Expiry_Date) <= DATE('now', '+{days} days')
-        ORDER BY Expiry_Date
+
+def update_receiver(rid,name,rtype,city,contact):
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    UPDATE receivers
+    SET Name=?,Type=?,City=?,Contact=?
+    WHERE Receiver_ID=?
+    """,(name,rtype,city,contact,rid))
+
+    conn.commit()
+    conn.close()
+
+
+def delete_receiver(rid):
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("DELETE FROM receivers WHERE Receiver_ID=?",(rid,))
+
+    conn.commit()
+    conn.close()
+
+
+# ------------------------------------------------
+# CRUD Food Listings
+# ------------------------------------------------
+
+def add_food_listing(fname,qty,expiry,provider,ptype,location,food_type,meal_type):
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    INSERT INTO food_listings
+    (Food_Name,Quantity,Expiry_Date,Provider_ID,Provider_Type,Location,Food_Type,Meal_Type)
+    VALUES(?,?,?,?,?,?,?,?)
+    """,(fname,qty,expiry,provider,ptype,location,food_type,meal_type))
+
+    conn.commit()
+    conn.close()
+
+
+def update_food_listing(fid,fname,qty,expiry,provider,ptype,location,food_type,meal_type):
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    UPDATE food_listings
+    SET Food_Name=?,Quantity=?,Expiry_Date=?,Provider_ID=?,Provider_Type=?,Location=?,Food_Type=?,Meal_Type=?
+    WHERE Food_ID=?
+    """,(fname,qty,expiry,provider,ptype,location,food_type,meal_type,fid))
+
+    conn.commit()
+    conn.close()
+
+
+def delete_food_listing(fid):
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("DELETE FROM food_listings WHERE Food_ID=?",(fid,))
+
+    conn.commit()
+    conn.close()
+
+
+# ------------------------------------------------
+# CRUD Claims
+# ------------------------------------------------
+
+def add_claim(food_id,receiver_id,status):
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    INSERT INTO claims(Food_ID,Receiver_ID,Status)
+    VALUES(?,?,?)
+    """,(food_id,receiver_id,status))
+
+    conn.commit()
+    conn.close()
+
+
+def update_claim(cid,food_id,receiver_id,status):
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    UPDATE claims
+    SET Food_ID=?,Receiver_ID=?,Status=?
+    WHERE Claim_ID=?
+    """,(food_id,receiver_id,status,cid))
+
+    conn.commit()
+    conn.close()
+
+
+def delete_claim(cid):
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("DELETE FROM claims WHERE Claim_ID=?",(cid,))
+
+    conn.commit()
+    conn.close()
+
+
+# ------------------------------------------------
+# REPORT QUERIES (13)
+# ------------------------------------------------
+
+def providers_receivers_per_city():
+
+    return fetch_dataframe("""
+    SELECT City,
+    COUNT(DISTINCT Provider_ID) as Providers,
+    COUNT(DISTINCT Receiver_ID) as Receivers
+    FROM providers
+    LEFT JOIN receivers USING(City)
+    GROUP BY City
     """)
 
-def get_claim_status_distribution():
-    return fetch_dataframe("SELECT Status, COUNT(*) as Count FROM claims GROUP BY Status")
 
-def get_provider_donations_count():
+def provider_type_most_food():
+
     return fetch_dataframe("""
-        SELECT p.Name, COUNT(fl.Food_ID) as Donations
-        FROM providers p
-        JOIN food_listings fl ON p.Provider_ID = fl.Provider_ID
-        GROUP BY p.Name
+    SELECT Provider_Type,SUM(Quantity) as Total_Food
+    FROM food_listings
+    GROUP BY Provider_Type
+    ORDER BY Total_Food DESC
     """)
 
-def get_receiver_claims_count():
+
+def provider_contacts_city():
+
     return fetch_dataframe("""
-        SELECT r.Name, COUNT(c.Claim_ID) as Claims
-        FROM receivers r
-        JOIN claims c ON r.Receiver_ID = c.Receiver_ID
-        GROUP BY r.Name
+    SELECT Name,Contact,City
+    FROM providers
     """)
 
-def get_foods_by_location():
+
+def receivers_most_food():
+
     return fetch_dataframe("""
-        SELECT Location, COUNT(*) as Food_Count 
-        FROM food_listings GROUP BY Location
+    SELECT r.Name,COUNT(c.Claim_ID) as Total_Claims
+    FROM claims c
+    JOIN receivers r ON c.Receiver_ID=r.Receiver_ID
+    GROUP BY r.Name
+    ORDER BY Total_Claims DESC
     """)
 
-def get_meal_type_distribution():
-    return fetch_dataframe("SELECT Meal_Type, COUNT(*) as Count FROM food_listings GROUP BY Meal_Type")
 
-def get_food_listing_by_provider(provider_name):
-    return fetch_dataframe("""
-        SELECT Food_Name, Quantity, Expiry_Date 
-        FROM food_listings fl
-        JOIN providers p ON fl.Provider_ID = p.Provider_ID
-        WHERE p.Name = ?
-    """, [provider_name])
+def total_food_quantity():
 
-def get_food_claim_history(food_id):
     return fetch_dataframe("""
-        SELECT c.Claim_ID, r.Name AS Receiver, c.Status, c.Timestamp
-        FROM claims c
-        JOIN receivers r ON c.Receiver_ID = r.Receiver_ID
-        WHERE c.Food_ID = ?
-    """, [food_id])
-
-def get_total_donations_over_time():
-    return fetch_dataframe("""
-        SELECT DATE(Timestamp) as Date, COUNT(*) as Total_Claims
-        FROM claims
-        GROUP BY DATE(Timestamp)
-        ORDER BY Date
+    SELECT SUM(Quantity) as Total_Food
+    FROM food_listings
     """)
 
-def get_avg_food_quantity_by_meal_type():
+
+def city_highest_listings():
+
     return fetch_dataframe("""
-        SELECT Meal_Type, AVG(Quantity) as Avg_Quantity
-        FROM food_listings
-        GROUP BY Meal_Type
+    SELECT Location,COUNT(*) as Listings
+    FROM food_listings
+    GROUP BY Location
+    ORDER BY Listings DESC
     """)
 
-def get_top_receivers(limit=5):
-    return fetch_dataframe(f"""
-        SELECT r.Name, COUNT(c.Claim_ID) as Total_Claims
-        FROM receivers r
-        JOIN claims c ON r.Receiver_ID = c.Receiver_ID
-        GROUP BY r.Name
-        ORDER BY Total_Claims DESC
-        LIMIT {limit}
+
+def common_food_types():
+
+    return fetch_dataframe("""
+    SELECT Food_Type,COUNT(*) as Count
+    FROM food_listings
+    GROUP BY Food_Type
+    ORDER BY Count DESC
     """)
 
+
+def claims_per_food():
+
+    return fetch_dataframe("""
+    SELECT Food_ID,COUNT(*) as Total_Claims
+    FROM claims
+    GROUP BY Food_ID
+    """)
+
+
+def provider_success_claims():
+
+    return fetch_dataframe("""
+    SELECT p.Name,COUNT(c.Claim_ID) as Successful_Claims
+    FROM claims c
+    JOIN food_listings f ON c.Food_ID=f.Food_ID
+    JOIN providers p ON f.Provider_ID=p.Provider_ID
+    WHERE c.Status='Completed'
+    GROUP BY p.Name
+    ORDER BY Successful_Claims DESC
+    """)
+
+
+def claim_status_percentage():
+
+    return fetch_dataframe("""
+    SELECT Status,
+    COUNT(*)*100.0/(SELECT COUNT(*) FROM claims) as Percentage
+    FROM claims
+    GROUP BY Status
+    """)
+
+
+def avg_food_per_receiver():
+
+    return fetch_dataframe("""
+    SELECT r.Name,AVG(f.Quantity) as Avg_Food
+    FROM claims c
+    JOIN receivers r ON c.Receiver_ID=r.Receiver_ID
+    JOIN food_listings f ON c.Food_ID=f.Food_ID
+    GROUP BY r.Name
+    """)
+
+
+def most_claimed_meal():
+
+    return fetch_dataframe("""
+    SELECT Meal_Type,COUNT(*) as Claims
+    FROM claims c
+    JOIN food_listings f ON c.Food_ID=f.Food_ID
+    GROUP BY Meal_Type
+    ORDER BY Claims DESC
+    """)
+
+
+def total_donation_provider():
+
+    return fetch_dataframe("""
+    SELECT p.Name,SUM(f.Quantity) as Total_Donated
+    FROM food_listings f
+    JOIN providers p ON f.Provider_ID=p.Provider_ID
+    GROUP BY p.Name
+    ORDER BY Total_Donated DESC
+    """)
