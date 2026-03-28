@@ -1,199 +1,211 @@
 import streamlit as st
-import plotly.express as px
-from database import *
+import database as db
+import matplotlib.pyplot as plt
 
 st.set_page_config(page_title="Food Waste Dashboard", layout="wide")
 
-# ---------------------------
-# LOAD DATA ONCE
-# ---------------------------
+# =========================
+# 🎨 CUSTOM CSS
+# =========================
+st.markdown("""
+<style>
+body {
+    background-color: #f5f7fa;
+}
+.header {
+    padding: 20px;
+    border-radius: 15px;
+    background: linear-gradient(90deg, #4CAF50, #2E7D32);
+    color: white;
+    text-align: center;
+    font-size: 28px;
+    font-weight: bold;
+}
+.card {
+    padding: 20px;
+    border-radius: 12px;
+    background-color: white;
+    box-shadow: 0px 4px 12px rgba(0,0,0,0.1);
+    text-align: center;
+}
+</style>
+""", unsafe_allow_html=True)
 
-@st.cache_data
-def load_data():
+# =========================
+# 🌟 HEADER
+# =========================
+st.markdown('<div class="header">🍱 Food Waste Management System</div>', unsafe_allow_html=True)
 
-    data = {}
+# =========================
+# LOAD DATA
+# =========================
+if st.button("🔄 Load Data"):
+    db.load_data()
+    st.success("Data Loaded Successfully!")
 
-    data["providers_city"] = providers_receivers_per_city()
-    data["provider_food"] = provider_type_most_food()
-    data["food_types"] = common_food_types()
-    data["city_listings"] = city_highest_listings()
-    data["donations"] = total_donation_provider()
-    data["claim_status"] = claim_status_percentage()
-    data["meal_claims"] = most_claimed_meal()
-    data["receivers_top"] = receivers_most_food()
+# =========================
+# SIDEBAR FILTERS
+# =========================
+st.sidebar.header("🔍 Filters")
 
-    data["total_food"] = total_food_quantity()
+city = st.sidebar.text_input("City")
+food_type = st.sidebar.selectbox("Food Type", ["All", "veg", "non-veg"])
+meal_type = st.sidebar.selectbox("Meal Type", ["All", "breakfast", "lunch", "dinner"])
 
-    return data
+query = "SELECT * FROM food_listings WHERE 1=1"
 
-data = load_data()
+if food_type != "All":
+    query += f" AND Food_Type='{food_type}'"
 
-# ---------------------------
-# TITLE
-# ---------------------------
+if meal_type != "All":
+    query += f" AND Meal_Type='{meal_type}'"
 
-st.title("🍲 Food Wastage Management Dashboard")
-
-st.markdown("Smart analytics to reduce food waste and improve food distribution.")
-
-st.divider()
-
-# ---------------------------
-# FILTERS (Power BI style)
-# ---------------------------
-
-st.sidebar.header("🔎 Filters")
-
-city_filter = st.sidebar.selectbox(
-    "Select City",
-    ["All"] + list(data["providers_city"]["City"].unique())
-)
-
-food_filter = st.sidebar.selectbox(
-    "Food Type",
-    ["All"] + list(data["food_types"]["Food_Type"].unique())
-)
-
-# ---------------------------
-# KPI CARDS
-# ---------------------------
-
-col1,col2,col3,col4 = st.columns(4)
-
-total_food = int(data["total_food"].iloc[0][0])
-
-providers = fetch_dataframe("SELECT COUNT(*) FROM providers").iloc[0][0]
-receivers = fetch_dataframe("SELECT COUNT(*) FROM receivers").iloc[0][0]
-claims = fetch_dataframe("SELECT COUNT(*) FROM claims").iloc[0][0]
-
-col1.metric("🍛 Total Food", total_food)
-col2.metric("🏪 Providers", providers)
-col3.metric("🏢 Receivers", receivers)
-col4.metric("📦 Claims", claims)
-
-st.divider()
-
-# ---------------------------
-# CHART ROW 1
-# ---------------------------
-
-col1,col2 = st.columns(2)
-
-with col1:
-
-    st.subheader("Top Food Providers")
-
-    fig = px.bar(
-        data["donations"],
-        x="Name",
-        y="Total_Donated",
-        color="Total_Donated"
+if city:
+    query += f"""
+    AND Provider_ID IN (
+        SELECT Provider_ID FROM providers WHERE City LIKE '%{city}%'
     )
+    """
 
-    st.plotly_chart(fig,use_container_width=True)
+data = db.run_query(query)
 
+# =========================
+# 📊 TABS
+# =========================
+tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "📈 Analysis", "📞 Contacts"])
 
-with col2:
+# =========================
+# DASHBOARD
+# =========================
+with tab1:
+    st.subheader("📊 Overview")
 
-    st.subheader("Food Listings by City")
+    col1, col2, col3 = st.columns(3)
 
-    fig = px.bar(
-        data["city_listings"],
-        x="Location",
-        y="Listings",
-        color="Listings"
-    )
+    col1.markdown(f"<div class='card'><h2>{len(data)}</h2><p>Total Items</p></div>", unsafe_allow_html=True)
+    col2.markdown(f"<div class='card'><h2>{int(data['Quantity'].sum()) if not data.empty else 0}</h2><p>Total Quantity</p></div>", unsafe_allow_html=True)
+    col3.markdown(f"<div class='card'><h2>{data['Provider_ID'].nunique() if not data.empty else 0}</h2><p>Providers</p></div>", unsafe_allow_html=True)
 
-    st.plotly_chart(fig,use_container_width=True)
+    st.subheader("📋 Food Listings")
+    st.dataframe(data, use_container_width=True)
 
-st.divider()
+# =========================
+# ANALYSIS
+# =========================
+with tab2:
+    st.subheader("📈 Insights")
 
-# ---------------------------
-# CHART ROW 2
-# ---------------------------
+    option = st.selectbox("Choose Analysis", [
+        "Food Types",
+        "Top Cities",
+        "Claim Status"
+    ])
 
-col1,col2 = st.columns(2)
+    if option == "Food Types":
+        df = db.q7_food_types()
+        fig, ax = plt.subplots()
+        ax.bar(df["Food_Type"], df["Count"])
+        ax.set_title("Food Type Distribution")
+        st.pyplot(fig)
 
-with col1:
+    elif option == "Top Cities":
+        df = db.q6_top_city()
+        fig, ax = plt.subplots()
+        ax.bar(df["City"], df["Listings"])
+        ax.set_title("Top Cities")
+        st.pyplot(fig)
 
-    st.subheader("Food Type Distribution")
+    elif option == "Claim Status":
+        df = db.q10_claim_status()
+        fig, ax = plt.subplots()
+        ax.pie(df["Percentage"], labels=df["Status"], autopct="%1.1f%%")
+        st.pyplot(fig)
 
-    fig = px.pie(
-        data["food_types"],
-        names="Food_Type",
-        values="Count"
-    )
+# =========================
+# CONTACTS
+# =========================
+with tab3:
+    st.subheader("📞 Provider Contacts")
 
-    st.plotly_chart(fig,use_container_width=True)
+    contacts = db.q3_provider_contacts()
+    st.dataframe(contacts, use_container_width=True)
 
+# =========================
+# REPORTS SECTION
+# =========================
+st.markdown("### 📊 SQL Reports + Visualization")
 
-with col2:
-
-    st.subheader("Most Claimed Meal Type")
-
-    fig = px.bar(
-        data["meal_claims"],
-        x="Meal_Type",
-        y="Claims",
-        color="Claims"
-    )
-
-    st.plotly_chart(fig,use_container_width=True)
-
-st.divider()
-
-# ---------------------------
-# CLAIM STATUS
-# ---------------------------
-
-st.subheader("Claim Status Analysis")
-
-fig = px.pie(
-    data["claim_status"],
-    names="Status",
-    values="Percentage"
-)
-
-st.plotly_chart(fig,use_container_width=True)
-
-st.divider()
-
-# ---------------------------
-# TOP RECEIVERS
-# ---------------------------
-
-st.subheader("Receivers Claiming Most Food")
-
-fig = px.bar(
-    data["receivers_top"],
-    x="Name",
-    y="Total_Claims",
-    color="Total_Claims"
-)
-
-st.plotly_chart(fig,use_container_width=True)
-
-st.divider()
-
-# ---------------------------
-# REPORT TABLES
-# ---------------------------
-
-st.header("📊 Analytical Reports")
-
-reports = {
-    "Providers & Receivers per City": data["providers_city"],
-    "Provider Type Contribution": data["provider_food"],
-    "Food Type Availability": data["food_types"],
-    "City With Highest Listings": data["city_listings"],
-    "Top Food Providers": data["donations"],
-    "Claim Status": data["claim_status"],
-    "Most Claimed Meal Type": data["meal_claims"],
-    "Top Receivers": data["receivers_top"]
+queries = {
+    "Food Types": db.q7_food_types,
+    "Top City": db.q6_top_city,
+    "Claim Status %": db.q10_claim_status,
+    "Top Provider Type": db.q2_top_provider_type
 }
 
-for title,df in reports.items():
+# SQL text mapping
+query_texts = {
+    "Food Types": """
+SELECT Food_Type, COUNT(*) AS Count
+FROM food_listings
+GROUP BY Food_Type
+ORDER BY Count DESC
+""",
 
-    with st.expander(title):
+    "Top City": """
+SELECT p.City, COUNT(*) AS Listings
+FROM food_listings f
+JOIN providers p ON f.Provider_ID = p.Provider_ID
+GROUP BY p.City
+ORDER BY Listings DESC
+""",
 
-        st.dataframe(df)
+    "Claim Status %": """
+SELECT Status,
+COUNT(*) * 100.0 / (SELECT COUNT(*) FROM claims) AS Percentage
+FROM claims
+GROUP BY Status
+""",
+
+    "Top Provider Type": """
+SELECT Type, COUNT(*) AS Total
+FROM providers
+GROUP BY Type
+ORDER BY Total DESC
+"""
+}
+
+choice = st.selectbox("Select Report", list(queries.keys()))
+
+# =========================
+# SHOW SQL QUERY
+# =========================
+st.subheader("🧠 SQL Query")
+st.code(query_texts[choice], language="sql")
+
+# =========================
+# RUN QUERY
+# =========================
+df = queries[choice]()
+st.subheader("📋 Result")
+st.dataframe(df, use_container_width=True)
+
+# =========================
+# SHOW CHART
+# =========================
+st.subheader("📈 Visualization")
+
+fig, ax = plt.subplots()
+
+if choice == "Food Types":
+    ax.bar(df["Food_Type"], df["Count"])
+
+elif choice == "Top City":
+    ax.bar(df["City"], df["Listings"])
+
+elif choice == "Claim Status %":
+    ax.pie(df["Percentage"], labels=df["Status"], autopct="%1.1f%%")
+
+elif choice == "Top Provider Type":
+    ax.bar(df["Type"], df["Total"])
+
+st.pyplot(fig)
